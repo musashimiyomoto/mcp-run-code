@@ -16,6 +16,10 @@ executor = DockerExecutor(
         cpu_count=settings.cpu_count,
         pids_limit=settings.pids_limit,
         output_limit_bytes=settings.max_output_bytes,
+        max_concurrent_jobs=settings.max_concurrent_jobs,
+        queue_wait_seconds=settings.queue_wait_seconds,
+        seccomp_profile=settings.docker_seccomp_profile,
+        apparmor_profile=settings.docker_apparmor_profile,
     )
 )
 

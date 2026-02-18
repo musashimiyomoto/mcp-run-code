@@ -26,6 +26,10 @@ class ExecutorConfig:
     cpu_count: float
     pids_limit: int
     output_limit_bytes: int
+    max_concurrent_jobs: int
+    queue_wait_seconds: float
+    seccomp_profile: str | None
+    apparmor_profile: str | None
 
 
 @dataclass(slots=True)
@@ -63,3 +67,7 @@ class Settings:
     pids_limit: int
     docker_image: str
     port: int
+    max_concurrent_jobs: int
+    queue_wait_seconds: float
+    docker_seccomp_profile: str | None
+    docker_apparmor_profile: str | None

@@ -37,7 +37,7 @@ async def _wait_server_ready(
 
 
 @pytest.fixture(scope="session")
-def server_ctx() -> Generator[dict[str, str]]:
+def server_ctx() -> Generator[dict[str, str], None, None]:
     load_dotenv()
     api_key = os.getenv("MCP_API_KEY", "").strip()
     if not api_key:
