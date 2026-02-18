@@ -6,6 +6,8 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastmcp[tasks]>=3.0.0rc1",
+    "pydantic>=2.10.6",
+    "pydantic-settings>=2.7.1",
 ]
 
 [dependency-groups]
@@ -14,3 +16,42 @@ dev = [
     "ruff>=0.15.1",
     "ty>=0.0.17",
 ]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",
+    "W",
+    "F",
+    "I",
+    "C90",
+    "N",
+    "UP",
+    "B",
+    "C4",
+    "DTZ",
+    "T10",
+    "EM",
+    "ICN",
+    "T20",
+    "PT",
+    "Q",
+    "RET",
+    "SIM",
+    "TID",
+    "ARG",
+    "PTH",
+    "ERA",
+    "PL",
+    "RUF",
+]
+ignore = [
+    "PLR0913",
+    "PLR0915",
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["executor", "models", "settings", "middleware"]

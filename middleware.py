@@ -1,14 +1,13 @@
 from fastmcp.exceptions import AuthorizationError
 from fastmcp.server.dependencies import get_http_headers
 from fastmcp.server.middleware import Middleware, MiddlewareContext
+
 from settings import settings
 
 
 class ApiKeyMiddleware(Middleware):
     async def on_request(self, context: MiddlewareContext, call_next):
         headers = get_http_headers(include_all=True)
-        # In in-process tests (Client(server)) there is no HTTP request.
-        # Skip header auth in that mode.
         if not headers:
             return await call_next(context)
 
@@ -19,10 +18,12 @@ class ApiKeyMiddleware(Middleware):
             provided = direct.strip()
 
         parts = headers.get("authorization", "").split(" ", 1)
-        if len(parts) == 2 and parts[0].lower() == "bearer":
+        expected_parts = 2
+        if len(parts) == expected_parts and parts[0].lower() == "bearer":
             provided = parts[1].strip()
 
         if provided != settings.api_key:
-            raise AuthorizationError("UNAUTHORIZED: invalid api key")
+            msg = "UNAUTHORIZED: invalid api key"
+            raise AuthorizationError(msg)
 
         return await call_next(context)

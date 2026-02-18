@@ -1,4 +1,3 @@
-from typing import Generator
 import asyncio
 import json
 import os
@@ -6,6 +5,8 @@ import socket
 import subprocess
 import sys
 import time
+from collections.abc import Generator
+from pathlib import Path
 
 import pytest
 from dotenv import load_dotenv
@@ -20,9 +21,7 @@ def _find_free_port() -> int:
         return int(s.getsockname()[1])
 
 
-async def _wait_server_ready(
-    base_url: str, api_key: str, timeout_s: float = 12.0
-) -> None:
+async def _wait_server_ready(base_url: str, api_key: str, timeout_s: float = 12.0) -> None:
     deadline = time.time() + timeout_s
     last_err: Exception | None = None
     while time.time() < deadline:
@@ -30,10 +29,11 @@ async def _wait_server_ready(
             async with Client(base_url, auth=api_key) as client:
                 await client.list_tools()
             return
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             last_err = exc
             await asyncio.sleep(0.2)
-    raise RuntimeError(f"Server did not become ready: {last_err}")
+    msg = f"Server did not become ready: {last_err}"
+    raise RuntimeError(msg)
 
 
 @pytest.fixture(scope="session")
@@ -41,7 +41,8 @@ def server_ctx() -> Generator[dict[str, str], None, None]:
     load_dotenv()
     api_key = os.getenv("MCP_API_KEY", "").strip()
     if not api_key:
-        raise RuntimeError("MCP_API_KEY is required for tests")
+        msg = "MCP_API_KEY is required for tests"
+        raise RuntimeError(msg)
 
     port = _find_free_port()
     base_url = f"http://127.0.0.1:{port}/mcp"
@@ -50,7 +51,7 @@ def server_ctx() -> Generator[dict[str, str], None, None]:
 
     proc = subprocess.Popen(
         [sys.executable, "main.py"],
-        cwd=os.getcwd(),
+        cwd=Path.cwd(),
         env=env,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -111,7 +112,7 @@ def test_happy_path_with_input(server_ctx: dict[str, str]) -> None:
         async with Client(server_ctx["base_url"], auth=server_ctx["api_key"]) as client:
             result = await client.call_tool(
                 "run_code",
-                {"code": code, "input_data": input_payload},
+                {"code": code, "stdin": input_payload},
                 task=False,
             )
         data = result.data
