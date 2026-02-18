@@ -1,0 +1,16 @@
+[project]
+name = "mcp-manager"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastmcp[tasks]>=3.0.0rc1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.0",
+    "ruff>=0.15.1",
+    "ty>=0.0.17",
+]
