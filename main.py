@@ -43,4 +43,4 @@ async def run_code(code: str, stdin: str | None = None) -> dict[str, Any]:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="http", port=settings.port)
+    mcp.run(transport="http", host="0.0.0.0", port=settings.port)
