@@ -23,6 +23,12 @@ Configure using environment variables or a `.env` file:
 - `MCP_PORT`: Server port (default: 8000)
 - `MCP_DOCKER_IMAGE`: Sandbox image (default: python:3.12-alpine)
 
+## Authentication
+
+- The server accepts only `Authorization: Bearer <MCP_API_KEY>`.
+- Requests without a Bearer token are rejected.
+- `x-api-key` is not supported.
+
 ## Usage
 
 ### Local Development

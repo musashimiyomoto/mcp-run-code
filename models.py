@@ -7,7 +7,9 @@ class JobResult(BaseModel):
     model_config = ConfigDict(frozen=True, use_enum_values=True)
 
     status: JobStatus = Field(default=..., description="JobStatus value as a string")
-    stdout: str = Field(default=..., description="Captured standard output, truncated to max_output_bytes")
+    stdout: str = Field(
+        default=..., description="Captured standard output, truncated to max_output_bytes"
+    )
     stderr: str = Field(default=..., description="Captured standard error")
     exit_code: int | None = Field(default=None, description="Exit code of the process")
     duration_ms: int | None = Field(default=None, description="Duration in milliseconds")
@@ -34,8 +36,12 @@ class ExecutorConfig(BaseModel):
 class OutputState(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    stdout: bytearray = Field(default_factory=bytearray, description="Captured standard output as a bytearray")
-    stderr: bytearray = Field(default_factory=bytearray, description="Captured standard error as a bytearray")
+    stdout: bytearray = Field(
+        default_factory=bytearray, description="Captured standard output as a bytearray"
+    )
+    stderr: bytearray = Field(
+        default_factory=bytearray, description="Captured standard error as a bytearray"
+    )
     total_kept: int = Field(default=0, description="Total bytes kept so far")
     limit: int = Field(default=..., description="Output limit in bytes")
     truncated: bool = Field(default=False, description="Whether output was truncated")

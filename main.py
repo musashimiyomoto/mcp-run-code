@@ -4,10 +4,9 @@ from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
 from constants import UTF_8
-from enums import JobStatus
 from executor import DockerExecutor
 from middleware import ApiKeyMiddleware
-from models import ExecutorConfig, JobResult
+from models import ExecutorConfig
 from settings import settings
 
 mcp = FastMCP("Code Executor MCP", tasks=True, middleware=[ApiKeyMiddleware()])
@@ -34,24 +33,13 @@ async def run_code(code: str, stdin: str | None = None) -> dict[str, Any]:
         msg = "INVALID_INPUT: 'code' must not be empty"
         raise ToolError(msg)
 
-    if len(code.encode(UTF_8)) > settings.max_code_bytes:
+    if len(code.encode(encoding=UTF_8)) > settings.max_code_bytes:
         msg = f"INVALID_INPUT: code is too large; max {settings.max_code_bytes} bytes"
         raise ToolError(msg)
 
-    try:
-        result = await executor.run(code=code, stdin=stdin)
-        return result.model_dump()
-    except Exception as exc:
-        return JobResult(
-            status=JobStatus.FAILED,
-            stdout="",
-            stderr="",
-            exit_code=None,
-            duration_ms=0,
-            truncated=False,
-            error_type="EXECUTOR_ERROR",
-            error_message=str(exc),
-        ).model_dump()
+    result = await executor.run(code=code, stdin=stdin)
+
+    return result.model_dump()
 
 
 if __name__ == "__main__":

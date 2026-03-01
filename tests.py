@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import json
 import os
 import socket
@@ -8,10 +9,11 @@ import time
 from collections.abc import Generator
 from pathlib import Path
 
+import httpx
 import pytest
 from dotenv import load_dotenv
 from fastmcp import Client
-from fastmcp.exceptions import ToolError
+from fastmcp.exceptions import McpError, ToolError
 
 
 def _find_free_port() -> int:
@@ -72,9 +74,44 @@ def server_ctx() -> Generator[dict[str, str], None, None]:
 def test_auth_rejected(server_ctx: dict[str, str]) -> None:
     async def _case() -> None:
         client = Client(server_ctx["base_url"], auth="wrong-key")
-        with pytest.raises(Exception):
+        with pytest.raises(McpError):
             async with client:
                 await client.list_tools()
+
+    asyncio.run(_case())
+
+
+def test_auth_missing_bearer_rejected(server_ctx: dict[str, str]) -> None:
+    async def _case() -> None:
+        client = Client(server_ctx["base_url"])
+        with pytest.raises(McpError):
+            async with client:
+                await client.list_tools()
+
+    asyncio.run(_case())
+
+
+def test_auth_basic_rejected(server_ctx: dict[str, str]) -> None:
+    class BasicAuth(httpx.Auth):
+        def auth_flow(self, request: httpx.Request):
+            payload = base64.b64encode(b"user:password").decode("ascii")
+            request.headers["Authorization"] = f"Basic {payload}"
+            yield request
+
+    async def _case() -> None:
+        client = Client(server_ctx["base_url"], auth=BasicAuth())
+        with pytest.raises(McpError):
+            async with client:
+                await client.list_tools()
+
+    asyncio.run(_case())
+
+
+def test_auth_bearer_valid(server_ctx: dict[str, str]) -> None:
+    async def _case() -> None:
+        async with Client(server_ctx["base_url"], auth=server_ctx["api_key"]) as client:
+            tools = await client.list_tools()
+        assert tools
 
     asyncio.run(_case())
 
