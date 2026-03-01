@@ -13,7 +13,7 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    api_key: str = Field(min_length=1)
+    api_key: str = Field(default=..., min_length=1)
     max_code_bytes: int = Field(default=32 * 1024, gt=0)
     max_output_bytes: int = Field(default=64 * 1024, gt=0)
     timeout_seconds: float = Field(default=5.0, gt=0)

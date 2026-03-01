@@ -5,37 +5,29 @@ import logging
 import tempfile
 import time
 import uuid
-from abc import ABC, abstractmethod
 from pathlib import Path
 
+from constants import UTF_8
+from enums import JobStatus
 from models import ExecutorConfig, JobResult, OutputState
 
 logger = logging.getLogger(__name__)
 
 
-class BaseExecutor(ABC):
-    @abstractmethod
-    async def run(self, code: str, language: str = "python", stdin: str | None = None) -> JobResult:
-        pass
-
-
-class DockerExecutor(BaseExecutor):
+class DockerExecutor:
     def __init__(self, config: ExecutorConfig) -> None:
         self._config = config
-        self._semaphore = asyncio.Semaphore(config.max_concurrent_jobs)
+        self._semaphore = asyncio.Semaphore(value=config.max_concurrent_jobs)
 
-    async def run(self, code: str, language: str = "python", stdin: str | None = None) -> JobResult:
-        if language != "python":
-            msg = f"Language {language} is not supported by DockerExecutor"
-            raise ValueError(msg)
-
+    async def run(self, code: str, stdin: str | None = None) -> JobResult:
         execution_id = uuid.uuid4().hex
         start = time.perf_counter()
         acquired = False
+
         try:
             try:
                 await asyncio.wait_for(
-                    self._semaphore.acquire(), timeout=self._config.queue_wait_seconds
+                    fut=self._semaphore.acquire(), timeout=self._config.queue_wait_seconds
                 )
                 acquired = True
             except TimeoutError:
@@ -46,7 +38,7 @@ class DockerExecutor(BaseExecutor):
                     max_concurrent_jobs=self._config.max_concurrent_jobs,
                 )
                 return JobResult(
-                    status="failed",
+                    status=JobStatus.FAILED,
                     stdout="",
                     stderr="",
                     exit_code=None,
@@ -59,12 +51,13 @@ class DockerExecutor(BaseExecutor):
                 )
 
             self._audit(event="started", execution_id=execution_id)
+
             with tempfile.TemporaryDirectory(prefix="mcp-job-") as temp_dir:
                 workspace = Path(temp_dir)
                 workspace.chmod(0o755)
 
                 script_path = workspace / "main.py"
-                script_path.write_text(code, encoding="utf-8")
+                script_path.write_text(code, encoding=UTF_8)
                 script_path.chmod(0o644)
 
                 result = await self._run_container(workspace=workspace, stdin=stdin, start=start)
@@ -78,6 +71,7 @@ class DockerExecutor(BaseExecutor):
                 truncated=result.truncated,
                 error_type=result.error_type,
             )
+
             return result
         finally:
             if acquired:
@@ -122,21 +116,20 @@ class DockerExecutor(BaseExecutor):
             "-B",
             "/workspace/main.py",
         ]
+
         if self._config.seccomp_profile:
             cmd.extend(["--security-opt", f"seccomp={self._config.seccomp_profile}"])
+
         if self._config.apparmor_profile:
             cmd.extend(["--security-opt", f"apparmor={self._config.apparmor_profile}"])
+
         if has_stdin:
             cmd.insert(3, "-i")
+
         return cmd
 
-    async def _run_container(
-        self,
-        workspace: Path,
-        stdin: str | None,
-        start: float,
-    ) -> JobResult:
-        cmd = self._get_docker_cmd(workspace, stdin is not None)
+    async def _run_container(self, workspace: Path, stdin: str | None, start: float) -> JobResult:
+        cmd = self._get_docker_cmd(workspace, has_stdin=bool(stdin))
 
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -147,13 +140,18 @@ class DockerExecutor(BaseExecutor):
 
         state = OutputState(limit=self._config.output_limit_bytes)
 
-        stdout_task = asyncio.create_task(self._read_stream(proc.stdout, state.stdout, state))
-        stderr_task = asyncio.create_task(self._read_stream(proc.stderr, state.stderr, state))
+        stdout_task = asyncio.create_task(
+            coro=self._read_stream(stream=proc.stdout, target=state.stdout, state=state)
+        )
+        stderr_task = asyncio.create_task(
+            coro=self._read_stream(stream=proc.stderr, target=state.stderr, state=state)
+        )
 
         if stdin is not None and proc.stdin is not None:
-            proc.stdin.write(stdin.encode("utf-8"))
+            proc.stdin.write(stdin.encode(UTF_8))
             await proc.stdin.drain()
             proc.stdin.close()
+
             with contextlib.suppress(Exception):
                 await proc.stdin.wait_closed()
 
@@ -165,20 +163,23 @@ class DockerExecutor(BaseExecutor):
                 await proc.wait()
 
             await asyncio.gather(stdout_task, stderr_task)
-            return self._build_result("timeout", state, None, start)
+
+            return JobResult(
+                status=JobStatus.TIMEOUT,
+                stdout=state.stdout.decode(encoding=UTF_8, errors="replace"),
+                stderr=state.stderr.decode(encoding=UTF_8, errors="replace"),
+                exit_code=None,
+                duration_ms=int((time.perf_counter() - start) * 1000),
+                truncated=state.truncated,
+            )
 
         await asyncio.gather(stdout_task, stderr_task)
-        status = "completed" if proc.returncode == 0 else "failed"
-        return self._build_result(status, state, proc.returncode, start)
 
-    def _build_result(
-        self, status: str, state: OutputState, exit_code: int | None, start: float
-    ) -> JobResult:
         return JobResult(
-            status=status,
-            stdout=state.stdout.decode("utf-8", errors="replace"),
-            stderr=state.stderr.decode("utf-8", errors="replace"),
-            exit_code=exit_code,
+            status=JobStatus.COMPLETED if proc.returncode == 0 else JobStatus.FAILED,
+            stdout=state.stdout.decode(encoding=UTF_8, errors="replace"),
+            stderr=state.stderr.decode(encoding=UTF_8, errors="replace"),
+            exit_code=proc.returncode,
             duration_ms=int((time.perf_counter() - start) * 1000),
             truncated=state.truncated,
         )
@@ -188,6 +189,7 @@ class DockerExecutor(BaseExecutor):
     ) -> None:
         if stream is None:
             return
+
         while True:
             chunk = await stream.read(4096)
             if not chunk:
@@ -195,5 +197,6 @@ class DockerExecutor(BaseExecutor):
             state.append(target, chunk)
 
     def _audit(self, event: str, **fields: object) -> None:
-        payload = {"event": f"sandbox.{event}", **fields}
-        logger.info(json.dumps(payload, ensure_ascii=True, sort_keys=True))
+        logger.info(
+            json.dumps({"event": f"sandbox.{event}", **fields}, ensure_ascii=True, sort_keys=True)
+        )
