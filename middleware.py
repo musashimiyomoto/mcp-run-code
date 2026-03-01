@@ -1,3 +1,4 @@
+import hmac
 import re
 from collections.abc import Mapping
 
@@ -27,7 +28,7 @@ class ApiKeyMiddleware(Middleware):
             msg = "UNAUTHORIZED: missing bearer token"
             raise AuthorizationError(msg)
 
-        if provided != settings.api_key:
+        if not hmac.compare_digest(provided, settings.api_key):
             msg = "UNAUTHORIZED: invalid api key"
             raise AuthorizationError(msg)
 

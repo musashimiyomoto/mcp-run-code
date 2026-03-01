@@ -46,6 +46,13 @@ class Settings(BaseSettings):
                 msg = f"MCP_DOCKER_SECCOMP_PROFILE file does not exist: {path}"
                 raise ValueError(msg)
             self.docker_seccomp_profile = str(path)
+
+        if self.docker_apparmor_profile:
+            path = Path(self.docker_apparmor_profile).expanduser().resolve()
+            if not path.is_file():
+                msg = f"MCP_DOCKER_APPARMOR_PROFILE file does not exist: {path}"
+                raise ValueError(msg)
+            self.docker_apparmor_profile = str(path)
         return self
 
 

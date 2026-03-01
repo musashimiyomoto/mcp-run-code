@@ -60,7 +60,9 @@ class DockerExecutor:
                 script_path.write_text(code, encoding=UTF_8)
                 script_path.chmod(0o644)
 
-                result = await self._run_container(workspace=workspace, stdin=stdin, start=start)
+                result = await self._run_container(
+                    execution_id=execution_id, workspace=workspace, stdin=stdin, start=start
+                )
 
             self._audit(
                 event="finished",
@@ -111,10 +113,6 @@ class DockerExecutor:
             "/workspace",
             "--mount",
             f"type=bind,source={workspace},target=/workspace,readonly,bind-propagation=rprivate",
-            self._config.image,
-            "python",
-            "-B",
-            "/workspace/main.py",
         ]
 
         if self._config.seccomp_profile:
@@ -123,20 +121,57 @@ class DockerExecutor:
         if self._config.apparmor_profile:
             cmd.extend(["--security-opt", f"apparmor={self._config.apparmor_profile}"])
 
+        cmd.extend([self._config.image, "python", "-B", "/workspace/main.py"])
+
         if has_stdin:
             cmd.insert(3, "-i")
 
         return cmd
 
-    async def _run_container(self, workspace: Path, stdin: str | None, start: float) -> JobResult:
+    async def _run_container(
+        self, execution_id: str, workspace: Path, stdin: str | None, start: float
+    ) -> JobResult:
         cmd = self._get_docker_cmd(workspace, has_stdin=bool(stdin))
 
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdin=asyncio.subprocess.PIPE if stdin is not None else asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except FileNotFoundError:
+            self._audit(
+                event="start_failed",
+                execution_id=execution_id,
+                error_type="EXECUTOR_UNAVAILABLE",
+            )
+            return JobResult(
+                status=JobStatus.FAILED,
+                stdout="",
+                stderr="",
+                exit_code=None,
+                duration_ms=int((time.perf_counter() - start) * 1000),
+                truncated=False,
+                error_type="EXECUTOR_UNAVAILABLE",
+                error_message="docker binary not found",
+            )
+        except (PermissionError, OSError):
+            self._audit(
+                event="start_failed",
+                execution_id=execution_id,
+                error_type="EXECUTOR_START_FAILED",
+            )
+            return JobResult(
+                status=JobStatus.FAILED,
+                stdout="",
+                stderr="",
+                exit_code=None,
+                duration_ms=int((time.perf_counter() - start) * 1000),
+                truncated=False,
+                error_type="EXECUTOR_START_FAILED",
+                error_message="failed to start docker process",
+            )
 
         state = OutputState(limit=self._config.output_limit_bytes)
 

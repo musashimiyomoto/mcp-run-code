@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+import logging
 import os
 import socket
 import subprocess
@@ -14,6 +15,10 @@ import pytest
 from dotenv import load_dotenv
 from fastmcp import Client
 from fastmcp.exceptions import McpError, ToolError
+
+from enums import JobStatus
+from executor import DockerExecutor
+from models import ExecutorConfig, JobResult
 
 
 def _find_free_port() -> int:
@@ -69,6 +74,137 @@ def server_ctx() -> Generator[dict[str, str], None, None]:
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait(timeout=5)
+
+
+def _make_executor_config(
+    *,
+    seccomp_profile: str | None = None,
+    apparmor_profile: str | None = None,
+    max_concurrent_jobs: int = 2,
+    queue_wait_seconds: float = 1.0,
+) -> ExecutorConfig:
+    return ExecutorConfig(
+        image="python:3.12-alpine",
+        timeout_seconds=5.0,
+        memory_mb=256,
+        cpu_count=1.0,
+        pids_limit=64,
+        output_limit_bytes=65536,
+        max_concurrent_jobs=max_concurrent_jobs,
+        queue_wait_seconds=queue_wait_seconds,
+        seccomp_profile=seccomp_profile,
+        apparmor_profile=apparmor_profile,
+    )
+
+
+def test_get_docker_cmd_security_opts_before_image() -> None:
+    executor = DockerExecutor(
+        config=_make_executor_config(
+            seccomp_profile="/profiles/seccomp.json",
+            apparmor_profile="/profiles/apparmor.profile",
+        )
+    )
+    cmd = executor._get_docker_cmd(workspace=Path("/tmp/workspace"), has_stdin=False)
+
+    image_idx = cmd.index("python:3.12-alpine")
+    seccomp_idx = cmd.index("seccomp=/profiles/seccomp.json")
+    apparmor_idx = cmd.index("apparmor=/profiles/apparmor.profile")
+
+    assert seccomp_idx < image_idx
+    assert apparmor_idx < image_idx
+
+
+def test_get_docker_cmd_omits_security_opts_when_profiles_absent() -> None:
+    executor = DockerExecutor(config=_make_executor_config())
+    cmd = executor._get_docker_cmd(workspace=Path("/tmp/workspace"), has_stdin=False)
+
+    assert "--security-opt" in cmd
+    assert all(not arg.startswith("seccomp=") for arg in cmd)
+    assert all(not arg.startswith("apparmor=") for arg in cmd)
+
+
+def test_run_container_file_not_found_returns_structured_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    async def _raise_file_not_found(*_args, **_kwargs):
+        raise FileNotFoundError
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _raise_file_not_found)
+    executor = DockerExecutor(config=_make_executor_config())
+
+    with caplog.at_level(logging.INFO):
+        result = asyncio.run(
+            executor._run_container(
+                execution_id="exec-1",
+                workspace=tmp_path,
+                stdin=None,
+                start=time.perf_counter(),
+            )
+        )
+
+    assert result.status == "failed"
+    assert result.error_type == "EXECUTOR_UNAVAILABLE"
+    assert result.error_message == "docker binary not found"
+    assert '"event": "sandbox.start_failed"' in caplog.text
+    assert '"error_type": "EXECUTOR_UNAVAILABLE"' in caplog.text
+
+
+def test_run_container_permission_error_returns_structured_error(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    async def _raise_permission_error(*_args, **_kwargs):
+        raise PermissionError
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", _raise_permission_error)
+    executor = DockerExecutor(config=_make_executor_config())
+
+    with caplog.at_level(logging.INFO):
+        result = asyncio.run(
+            executor._run_container(
+                execution_id="exec-2",
+                workspace=tmp_path,
+                stdin=None,
+                start=time.perf_counter(),
+            )
+        )
+
+    assert result.status == "failed"
+    assert result.error_type == "EXECUTOR_START_FAILED"
+    assert result.error_message == "failed to start docker process"
+    assert '"event": "sandbox.start_failed"' in caplog.text
+    assert '"error_type": "EXECUTOR_START_FAILED"' in caplog.text
+
+
+def test_backpressure_returns_executor_busy(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _fake_run_container(*_args, **_kwargs):
+        await asyncio.sleep(0.2)
+        return JobResult(
+            status=JobStatus.COMPLETED,
+            stdout="ok",
+            stderr="",
+            exit_code=0,
+            duration_ms=1,
+            truncated=False,
+        )
+
+    monkeypatch.setattr(DockerExecutor, "_run_container", _fake_run_container)
+
+    executor = DockerExecutor(
+        config=_make_executor_config(max_concurrent_jobs=1, queue_wait_seconds=0.05)
+    )
+
+    async def _case() -> tuple[JobResult, JobResult]:
+        first = asyncio.create_task(executor.run("print('first')"))
+        await asyncio.sleep(0.01)
+        second = await executor.run("print('second')")
+        first_result = await first
+        return first_result, second
+
+    first_result, second_result = asyncio.run(_case())
+
+    assert first_result.status == "completed"
+    assert second_result.status == "failed"
+    assert second_result.error_type == "EXECUTOR_BUSY"
 
 
 def test_auth_rejected(server_ctx: dict[str, str]) -> None:
