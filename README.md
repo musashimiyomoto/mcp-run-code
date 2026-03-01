@@ -2,6 +2,7 @@
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![ty](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ty/main/assets/badge/v0.json)](https://github.com/astral-sh/ty)
+[![CI/CD Pipeline](https://github.com/musashimiyomoto/mcp-run-code/actions/workflows/ci.yml/badge.svg)](https://github.com/musashimiyomoto/mcp-run-code/actions/workflows/ci.yml)
 
 # Code Executor MCP
 
@@ -19,9 +20,18 @@ Secure code execution sandbox for Model Context Protocol (MCP).
 
 Configure using environment variables or a `.env` file:
 
+```bash
+cp .env.example .env
+```
+
 - `MCP_API_KEY`: Required for authentication
 - `MCP_PORT`: Server port (default: 8000)
 - `MCP_DOCKER_IMAGE`: Sandbox image (default: python:3.12-alpine)
+
+## Authentication
+
+- The server accepts only `Authorization: Bearer <MCP_API_KEY>`.
+- Requests without a Bearer token are rejected.
 
 ## Usage
 
@@ -36,11 +46,11 @@ uv run main.py
 
 ```bash
 docker build -t mcp-manager .
-docker run -p 8000:8000 -v /var/run/docker.sock:/var/run/docker.sock mcp-manager
-```
 
-## Testing
-
-```bash
-uv run pytest tests.py
+docker run --rm -it \
+  --env-file .env \
+  -p 8000:8000 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v /tmp:/tmp \
+  mcp-manager
 ```

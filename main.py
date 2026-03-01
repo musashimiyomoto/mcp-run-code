@@ -3,6 +3,7 @@ from typing import Any
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 
+from constants import UTF_8
 from executor import DockerExecutor
 from middleware import ApiKeyMiddleware
 from models import ExecutorConfig
@@ -11,7 +12,7 @@ from settings import settings
 mcp = FastMCP("Code Executor MCP", tasks=True, middleware=[ApiKeyMiddleware()])
 
 executor = DockerExecutor(
-    ExecutorConfig(
+    config=ExecutorConfig(
         image=settings.docker_image,
         timeout_seconds=settings.timeout_seconds,
         memory_mb=settings.memory_mb,
@@ -27,34 +28,19 @@ executor = DockerExecutor(
 
 
 @mcp.tool(task=True)
-async def run_code(
-    code: str,
-    language: str = "python",
-    stdin: str | None = None,
-) -> dict[str, Any]:
+async def run_code(code: str, stdin: str | None = None) -> dict[str, Any]:
     if not code or not code.strip():
         msg = "INVALID_INPUT: 'code' must not be empty"
         raise ToolError(msg)
 
-    if len(code.encode("utf-8")) > settings.max_code_bytes:
+    if len(code.encode(encoding=UTF_8)) > settings.max_code_bytes:
         msg = f"INVALID_INPUT: code is too large; max {settings.max_code_bytes} bytes"
         raise ToolError(msg)
 
-    try:
-        result = await executor.run(code=code, language=language, stdin=stdin)
-        return result.model_dump()
-    except Exception as exc:
-        return {
-            "status": "failed",
-            "stdout": "",
-            "stderr": "",
-            "exit_code": None,
-            "duration_ms": 0,
-            "truncated": False,
-            "error_type": "EXECUTOR_ERROR",
-            "error_message": str(exc),
-        }
+    result = await executor.run(code=code, stdin=stdin)
+
+    return result.model_dump()
 
 
 if __name__ == "__main__":
-    mcp.run(transport="http", port=settings.port)
+    mcp.run(transport="http", host="0.0.0.0", port=settings.port)

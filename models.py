@@ -1,48 +1,50 @@
-from __future__ import annotations
-
-from typing import Literal
-
 from pydantic import BaseModel, ConfigDict, Field
 
-JobStatus = Literal["queued", "running", "completed", "failed", "timeout"]
+from enums import JobStatus
 
 
 class JobResult(BaseModel):
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, use_enum_values=True)
 
-    status: JobStatus
-    stdout: str
-    stderr: str
-    exit_code: int | None
-    duration_ms: int | None
-    truncated: bool
-    error_type: str | None = None
-    error_message: str | None = None
+    status: JobStatus = Field(default=..., description="JobStatus value as a string")
+    stdout: str = Field(
+        default=..., description="Captured standard output, truncated to max_output_bytes"
+    )
+    stderr: str = Field(default=..., description="Captured standard error")
+    exit_code: int | None = Field(default=None, description="Exit code of the process")
+    duration_ms: int | None = Field(default=None, description="Duration in milliseconds")
+    truncated: bool = Field(default=False, description="Whether output was truncated")
+    error_type: str | None = Field(default=None, description="Error type if job failed")
+    error_message: str | None = Field(default=None, description="Error message if job failed")
 
 
 class ExecutorConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    image: str
-    timeout_seconds: float = Field(gt=0)
-    memory_mb: int = Field(gt=0)
-    cpu_count: float = Field(gt=0)
-    pids_limit: int = Field(gt=0)
-    output_limit_bytes: int = Field(gt=0)
-    max_concurrent_jobs: int = Field(gt=0)
-    queue_wait_seconds: float = Field(gt=0)
-    seccomp_profile: str | None = None
-    apparmor_profile: str | None = None
+    image: str = Field(default=..., description="Docker image to use for execution")
+    timeout_seconds: float = Field(gt=0, description="Timeout in seconds")
+    memory_mb: int = Field(gt=0, description="Memory limit in MB")
+    cpu_count: float = Field(gt=0, description="CPU count")
+    pids_limit: int = Field(gt=0, description="PID limit")
+    output_limit_bytes: int = Field(gt=0, description="Output limit in bytes")
+    max_concurrent_jobs: int = Field(gt=0, description="Maximum concurrent jobs")
+    queue_wait_seconds: float = Field(gt=0, description="Queue wait timeout in seconds")
+    seccomp_profile: str | None = Field(default=None, description="Seccomp profile path")
+    apparmor_profile: str | None = Field(default=None, description="AppArmor profile path")
 
 
 class OutputState(BaseModel):
-    stdout: bytearray = Field(default_factory=bytearray)
-    stderr: bytearray = Field(default_factory=bytearray)
-    total_kept: int = 0
-    limit: int
-    truncated: bool = False
-
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    stdout: bytearray = Field(
+        default_factory=bytearray, description="Captured standard output as a bytearray"
+    )
+    stderr: bytearray = Field(
+        default_factory=bytearray, description="Captured standard error as a bytearray"
+    )
+    total_kept: int = Field(default=0, description="Total bytes kept so far")
+    limit: int = Field(default=..., description="Output limit in bytes")
+    truncated: bool = Field(default=False, description="Whether output was truncated")
 
     def append(self, target: bytearray, chunk: bytes) -> None:
         if self.total_kept >= self.limit:
